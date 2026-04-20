@@ -66,10 +66,7 @@ export function ActivityHeatmap({ data }: ActivityHeatmapProps) {
               borderRadius: 4,
               aspectRatio: '1/1',
               cursor: c.value > 0 ? 'pointer' : 'default',
-              transition: 'opacity 0.15s',
             }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLDivElement).style.opacity = '0.75')}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLDivElement).style.opacity = '1')}
           />
         ))}
       </div>

@@ -33,8 +33,8 @@ export function LanguageUsagePie({ data }: LanguageUsagePieProps) {
               }
               labelLine={false}
             >
-              {data.map((_entry, i) => (
-                <Cell key={i} fill={COLORS[i % COLORS.length]} />
+              {data.map((entry) => (
+                <Cell key={entry.name} fill={COLORS[data.indexOf(entry) % COLORS.length]} />
               ))}
             </Pie>
             <Tooltip

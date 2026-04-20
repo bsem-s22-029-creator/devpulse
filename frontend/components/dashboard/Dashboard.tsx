@@ -41,14 +41,14 @@ export function Dashboard() {
   const [from, setFrom] = useState('2026-04-01');
   const [to, setTo] = useState('2026-04-30');
 
-  const scores: Score[] = useMemo(
+  // In a real app these values would be fetched/derived from repo, from, and to.
+  const scores: Score[] = useMemo<Score[]>(
     () => [
       { label: 'Consistency', value: 86, tone: 'good', description: 'Days with ≥1 contribution' },
       { label: 'Impact', value: 78, tone: 'mid', description: 'PRs merged + issues closed' },
       { label: 'Collaboration', value: 91, tone: 'great', description: 'Reviews & comments given' },
     ],
-    // In a real app, recalculate when repo/from/to change
-    [repo, from, to]
+    []
   );
 
   return (
