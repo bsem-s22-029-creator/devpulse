@@ -21,6 +21,123 @@ type GraphQlResponse<T> = {
   errors?: GraphQlError[];
 };
 
+type ViewerProfileResponse = {
+  viewer: {
+    id: string;
+    login: string;
+    name: string | null;
+    avatarUrl: string;
+    url: string;
+    bio: string | null;
+    email: string | null;
+    company: string | null;
+    location: string | null;
+    followers: { totalCount: number };
+    following: { totalCount: number };
+    createdAt: string;
+  };
+};
+
+type ViewerRepositoriesResponse = {
+  viewer: {
+    repositories: {
+      nodes: Array<{
+        id: string;
+        name: string;
+        nameWithOwner: string;
+        description: string | null;
+        url: string;
+        isPrivate: boolean;
+        stargazerCount: number;
+        forkCount: number;
+        primaryLanguage: { name: string } | null;
+        updatedAt: string;
+        createdAt: string;
+      } | null>;
+      pageInfo: PageInfo;
+    };
+  };
+};
+
+type RepositoryCommitHistoryResponse = {
+  repository: {
+    defaultBranchRef: {
+      target: {
+        history: {
+          nodes: Array<{
+            oid: string;
+            committedDate: string;
+            messageHeadline: string;
+            url: string;
+            author: {
+              name: string | null;
+              user: { login: string } | null;
+            } | null;
+          } | null>;
+          pageInfo: PageInfo;
+        };
+      } | null;
+    } | null;
+  } | null;
+};
+
+type CommitHistoryConnection = NonNullable<
+  NonNullable<NonNullable<RepositoryCommitHistoryResponse['repository']>['defaultBranchRef']>['target']
+>['history'];
+
+type ViewerPullRequestsResponse = {
+  viewer: {
+    pullRequests: {
+      nodes: Array<{
+        id: string;
+        number: number;
+        title: string;
+        url: string;
+        state: string;
+        createdAt: string;
+        updatedAt: string;
+        closedAt: string | null;
+        mergedAt: string | null;
+        repository: { nameWithOwner: string };
+      } | null>;
+      pageInfo: PageInfo;
+    };
+  };
+};
+
+type ViewerIssuesResponse = {
+  viewer: {
+    issues: {
+      nodes: Array<{
+        id: string;
+        number: number;
+        title: string;
+        url: string;
+        state: string;
+        createdAt: string;
+        updatedAt: string;
+        closedAt: string | null;
+        repository: { nameWithOwner: string };
+      } | null>;
+      pageInfo: PageInfo;
+    };
+  };
+};
+
+type RepositoriesForCommitScanResponse = {
+  viewer: {
+    repositories: {
+      nodes: Array<{
+        name: string;
+        nameWithOwner: string;
+        owner: { login: string };
+        defaultBranchRef: { name: string } | null;
+      } | null>;
+      pageInfo: PageInfo;
+    };
+  };
+};
+
 export interface NormalizedUserProfile {
   id: string;
   username: string;
@@ -87,22 +204,7 @@ function sleep(ms: number): Promise<void> {
 
 export class GitHubGraphqlRepository {
   async fetchUserProfile(token: string): Promise<NormalizedUserProfile> {
-    const data = await this.request<{
-      viewer: {
-        id: string;
-        login: string;
-        name: string | null;
-        avatarUrl: string;
-        url: string;
-        bio: string | null;
-        email: string | null;
-        company: string | null;
-        location: string | null;
-        followers: { totalCount: number };
-        following: { totalCount: number };
-        createdAt: string;
-      };
-    }>(
+    const data = await this.request<ViewerProfileResponse>(
       `
       query ViewerProfile {
         viewer {
@@ -150,26 +252,7 @@ export class GitHubGraphqlRepository {
     let after: string | null = null;
 
     do {
-      const data = await this.request<{
-        viewer: {
-          repositories: {
-            nodes: Array<{
-              id: string;
-              name: string;
-              nameWithOwner: string;
-              description: string | null;
-              url: string;
-              isPrivate: boolean;
-              stargazerCount: number;
-              forkCount: number;
-              primaryLanguage: { name: string } | null;
-              updatedAt: string;
-              createdAt: string;
-            } | null>;
-            pageInfo: PageInfo;
-          };
-        };
-      }>(
+      const data: ViewerRepositoriesResponse = await this.request<ViewerRepositoriesResponse>(
         `
         query ViewerRepositories($first: Int!, $after: String) {
           viewer {
@@ -248,27 +331,7 @@ export class GitHubGraphqlRepository {
       let after: string | null = null;
 
       do {
-        const data = await this.request<{
-          repository: {
-            defaultBranchRef: {
-              target: {
-                history: {
-                  nodes: Array<{
-                    oid: string;
-                    committedDate: string;
-                    messageHeadline: string;
-                    url: string;
-                    author: {
-                      name: string | null;
-                      user: { login: string } | null;
-                    } | null;
-                  } | null>;
-                  pageInfo: PageInfo;
-                };
-              } | null;
-            } | null;
-          } | null;
-        }>(
+        const data = await this.request<RepositoryCommitHistoryResponse>(
           `
           query RepositoryCommitHistory($owner: String!, $name: String!, $since: GitTimestamp!, $first: Int!, $after: String) {
             repository(owner: $owner, name: $name) {
@@ -309,7 +372,7 @@ export class GitHubGraphqlRepository {
           token
         );
 
-        const history = data.repository?.defaultBranchRef?.target?.history;
+        const history = data.repository?.defaultBranchRef?.target?.history as CommitHistoryConnection | undefined;
         if (!history) {
           break;
         }
@@ -343,25 +406,7 @@ export class GitHubGraphqlRepository {
 
     let pullRequestCursor: string | null = null;
     do {
-      const data = await this.request<{
-        viewer: {
-          pullRequests: {
-            nodes: Array<{
-              id: string;
-              number: number;
-              title: string;
-              url: string;
-              state: string;
-              createdAt: string;
-              updatedAt: string;
-              closedAt: string | null;
-              mergedAt: string | null;
-              repository: { nameWithOwner: string };
-            } | null>;
-            pageInfo: PageInfo;
-          };
-        };
-      }>(
+      const data: ViewerPullRequestsResponse = await this.request<ViewerPullRequestsResponse>(
         `
         query ViewerPullRequests($first: Int!, $after: String) {
           viewer {
@@ -419,24 +464,7 @@ export class GitHubGraphqlRepository {
 
     let issueCursor: string | null = null;
     do {
-      const data = await this.request<{
-        viewer: {
-          issues: {
-            nodes: Array<{
-              id: string;
-              number: number;
-              title: string;
-              url: string;
-              state: string;
-              createdAt: string;
-              updatedAt: string;
-              closedAt: string | null;
-              repository: { nameWithOwner: string };
-            } | null>;
-            pageInfo: PageInfo;
-          };
-        };
-      }>(
+      const data: ViewerIssuesResponse = await this.request<ViewerIssuesResponse>(
         `
         query ViewerIssues($first: Int!, $after: String) {
           viewer {
@@ -510,19 +538,7 @@ export class GitHubGraphqlRepository {
     let after: string | null = null;
 
     do {
-      const data = await this.request<{
-        viewer: {
-          repositories: {
-            nodes: Array<{
-              name: string;
-              nameWithOwner: string;
-              owner: { login: string };
-              defaultBranchRef: { name: string } | null;
-            } | null>;
-            pageInfo: PageInfo;
-          };
-        };
-      }>(
+      const data: RepositoriesForCommitScanResponse = await this.request<RepositoriesForCommitScanResponse>(
         `
         query RepositoriesForCommitScan($first: Int!, $after: String) {
           viewer {
