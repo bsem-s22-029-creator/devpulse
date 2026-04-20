@@ -355,7 +355,8 @@ export class InsightsService {
     }
 
     const medianResolutionHours = median(responseDurationsHours);
-    const responsivenessScore = clamp(100 * Math.exp(-medianResolutionHours / (24 * 7)), 0, 100);
+    const responsivenessScore =
+      responseDurationsHours.length === 0 ? 0 : clamp(100 * Math.exp(-medianResolutionHours / (24 * 7)), 0, 100);
     const interactionBalanceScore =
       pullRequests.length + issues.length === 0
         ? 0
