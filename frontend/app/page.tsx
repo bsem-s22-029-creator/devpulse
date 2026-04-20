@@ -32,6 +32,21 @@ export default async function HomePage() {
         Sign in with GitHub
       </a>
       <InsightsChart data={chartData} />
+      <a
+        href="/dashboard"
+        style={{
+          display: 'inline-block',
+          marginTop: 24,
+          textDecoration: 'none',
+          background: '#4f46e5',
+          color: '#fff',
+          padding: '10px 14px',
+          borderRadius: 8,
+          fontWeight: 700,
+        }}
+      >
+        View Developer Analytics →
+      </a>
     </main>
   );
 }
