@@ -24,12 +24,14 @@ insightsRouter.post('/aggregate', (req, res) => {
 
   const repositories = Array.isArray(body?.repositories) ? body.repositories : [];
   const pullRequests = Array.isArray(body?.pullRequests) ? body.pullRequests : [];
+  const issues = Array.isArray(body?.issues) ? body.issues : [];
 
   try {
     const analytics = insightsService.buildAnalytics({
       commits,
       repositories,
-      pullRequests
+      pullRequests,
+      issues
     });
 
     return res.status(200).json(analytics);

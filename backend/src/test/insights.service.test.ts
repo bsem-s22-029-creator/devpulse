@@ -32,16 +32,50 @@ test('InsightsService builds aggregated analytics for frontend charts', () => {
       { committedAt: '2026-04-07T15:00:00Z' },
       { committedAt: '2026-04-07T17:00:00Z' }
     ],
-    repositories: [{ id: 'r1' }, { id: 'r2' }],
-    pullRequests: [{ id: 'pr1' }]
+    repositories: [
+      { id: 'r1', stars: 80, forks: 18, updatedAt: '2026-04-07T18:00:00Z' },
+      { id: 'r2', stars: 15, forks: 4, updatedAt: '2026-04-05T11:00:00Z' }
+    ],
+    pullRequests: [
+      {
+        id: 'pr1',
+        repository: 'octocat/devpulse',
+        state: 'MERGED',
+        createdAt: '2026-04-03T10:00:00Z',
+        mergedAt: '2026-04-04T10:00:00Z'
+      },
+      {
+        id: 'pr2',
+        repository: 'octocat/devpulse',
+        state: 'OPEN',
+        createdAt: '2026-04-06T12:00:00Z'
+      }
+    ],
+    issues: [
+      {
+        id: 'i1',
+        repository: 'octocat/devpulse',
+        state: 'CLOSED',
+        createdAt: '2026-04-02T09:00:00Z',
+        closedAt: '2026-04-02T20:00:00Z'
+      },
+      {
+        id: 'i2',
+        repository: 'octocat/devpulse',
+        state: 'OPEN',
+        createdAt: '2026-04-07T08:00:00Z'
+      }
+    ]
   });
 
   assert.equal(analytics.summary.commitCount, 5);
   assert.equal(analytics.summary.repositoryCount, 2);
-  assert.equal(analytics.summary.pullRequestCount, 1);
+  assert.equal(analytics.summary.pullRequestCount, 2);
   assert.equal(analytics.summary.averageCommitsPerSession, 1.25);
   assert.equal(analytics.summary.longestInactivityGapHours, 125);
-  assert.equal(analytics.summary.consistencyScore, 45);
+  assert.equal(analytics.summary.consistencyScore, 50);
+  assert.equal(analytics.summary.impactScore, 76);
+  assert.equal(analytics.summary.collaborationScore, 63);
   assert.equal(analytics.summary.productivityScore, 18);
 
   assert.deepEqual(analytics.metrics.dailyCommitFrequency, [
@@ -77,7 +111,9 @@ test('InsightsService handles empty and invalid commit inputs', () => {
   assert.equal(analytics.summary.commitCount, 0);
   assert.equal(analytics.summary.averageCommitsPerSession, 0);
   assert.equal(analytics.summary.longestInactivityGapHours, 0);
-  assert.equal(analytics.summary.consistencyScore, 100);
+  assert.equal(analytics.summary.consistencyScore, 0);
+  assert.equal(analytics.summary.impactScore, 0);
+  assert.equal(analytics.summary.collaborationScore, 0);
   assert.equal(analytics.summary.productivityScore, 0);
   assert.deepEqual(analytics.metrics.dailyCommitFrequency, []);
   assert.deepEqual(analytics.metrics.weeklyProductivityTrend, []);
