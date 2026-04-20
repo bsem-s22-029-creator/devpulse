@@ -75,7 +75,7 @@ test('InsightsService builds aggregated analytics for frontend charts', () => {
   assert.equal(analytics.summary.longestInactivityGapHours, 125);
   assert.equal(analytics.summary.consistencyScore, 60);
   assert.equal(analytics.summary.impactScore, 60);
-  assert.equal(analytics.summary.collaborationScore, 51);
+  assert.equal(analytics.summary.collaborationScore, 50);
   assert.equal(analytics.summary.productivityScore, 18);
 
   assert.deepEqual(analytics.metrics.dailyCommitFrequency, [

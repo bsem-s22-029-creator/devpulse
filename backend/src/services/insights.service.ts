@@ -2,6 +2,15 @@ import { GitHubRepository, RepositoryInsight } from '../data/repositories/github
 
 const SESSION_GAP_MS = 90 * 60 * 1000;
 const PRODUCTIVITY_TARGET_COMMITS_PER_DAY = 10;
+const MERGED_PR_IMPACT_WEIGHT = 6;
+const CLOSED_UNMERGED_PR_IMPACT_WEIGHT = 2;
+const ISSUE_COLLAB_LOAD_WEIGHT = 1.5;
+const OPEN_PR_COLLAB_LOAD_WEIGHT = 2;
+const CLOSED_UNMERGED_PR_OUTCOME_CREDIT = 0.4;
+const INACTIVITY_PENALTY_PER_GAP_DAY = 3;
+const REPOSITORY_STAR_SIGNAL_WEIGHT = 0.6;
+const REPOSITORY_FORK_SIGNAL_WEIGHT = 0.4;
+const FRESHNESS_DECAY_DAYS = 45;
 
 export interface RawCommitInput {
   committedAt?: string;
@@ -106,6 +115,18 @@ function saturatingScore(value: number, target: number): number {
   return clamp(100 * (1 - Math.exp(-value / target)), 0, 100);
 }
 
+function regularityScore(coefficientOfVariation: number): number {
+  return clamp(100 / (1 + coefficientOfVariation), 0, 100);
+}
+
+function safeNonNegative(value?: number): number {
+  if (value == null) {
+    return 0;
+  }
+
+  return Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+
 function parseDate(value?: string | null): Date | null {
   if (!value) {
     return null;
@@ -128,6 +149,20 @@ function median(values: number[]): number {
   }
 
   return sortedValues[middle]!;
+}
+
+function classifyPullRequestState(pullRequest: RawPullRequestInput): {
+  isMerged: boolean;
+  isClosed: boolean;
+  isOpen: boolean;
+} {
+  const mergedAt = parseDate(pullRequest.mergedAt);
+  const closedAt = parseDate(pullRequest.closedAt);
+  const isMerged = pullRequest.state === 'MERGED' || mergedAt !== null;
+  const isClosed = pullRequest.state === 'CLOSED' || closedAt !== null;
+  const isOpen = pullRequest.state === 'OPEN' || (!isMerged && !isClosed);
+
+  return { isMerged, isClosed, isOpen };
 }
 
 export class InsightsService {
@@ -193,12 +228,15 @@ export class InsightsService {
       }
     }
 
-    let anchorDate = commits[commits.length - 1] ?? null;
+    let latestActivityDate: Date | null = null;
+    if (commits.length > 0) {
+      latestActivityDate = commits[commits.length - 1]!;
+    }
     for (const pullRequest of pullRequests) {
       const candidateDates = [parseDate(pullRequest.updatedAt), parseDate(pullRequest.mergedAt), parseDate(pullRequest.closedAt)];
       for (const candidateDate of candidateDates) {
-        if (candidateDate && (!anchorDate || candidateDate.getTime() > anchorDate.getTime())) {
-          anchorDate = candidateDate;
+        if (candidateDate && (!latestActivityDate || candidateDate.getTime() > latestActivityDate.getTime())) {
+          latestActivityDate = candidateDate;
         }
       }
     }
@@ -206,21 +244,21 @@ export class InsightsService {
     for (const issue of issues) {
       const candidateDates = [parseDate(issue.updatedAt), parseDate(issue.closedAt)];
       for (const candidateDate of candidateDates) {
-        if (candidateDate && (!anchorDate || candidateDate.getTime() > anchorDate.getTime())) {
-          anchorDate = candidateDate;
+        if (candidateDate && (!latestActivityDate || candidateDate.getTime() > latestActivityDate.getTime())) {
+          latestActivityDate = candidateDate;
         }
       }
     }
 
     for (const repository of repositories) {
       const updatedAt = parseDate(repository.updatedAt);
-      if (updatedAt && (!anchorDate || updatedAt.getTime() > anchorDate.getTime())) {
-        anchorDate = updatedAt;
+      if (updatedAt && (!latestActivityDate || updatedAt.getTime() > latestActivityDate.getTime())) {
+        latestActivityDate = updatedAt;
       }
     }
 
-    if (!anchorDate) {
-      anchorDate = new Date();
+    if (!latestActivityDate) {
+      latestActivityDate = new Date();
     }
 
     const activeRangeDailyValues: number[] = [];
@@ -249,7 +287,7 @@ export class InsightsService {
     const dailyVariance = calculateVariance(activeRangeDailyValues);
     const dailyStdDev = Math.sqrt(dailyVariance);
     const coefficientOfVariation = meanDailyCommits > 0 ? dailyStdDev / meanDailyCommits : 0;
-    const dailyRegularityScore = clamp(100 / (1 + coefficientOfVariation), 0, 100);
+    const dailyRegularityScore = regularityScore(coefficientOfVariation);
     const daysWithCommits = activeRangeDailyValues.filter((value) => value > 0).length;
     const activeDayScore =
       activeRangeDailyValues.length === 0 ? 0 : (daysWithCommits / activeRangeDailyValues.length) * 100;
@@ -260,8 +298,8 @@ export class InsightsService {
     const weeklyVariance = calculateVariance(activeRangeWeeklyValues);
     const weeklyStdDev = Math.sqrt(weeklyVariance);
     const weeklyCoefficientOfVariation = weeklyMean > 0 ? weeklyStdDev / weeklyMean : 0;
-    const weeklyRhythmScore = clamp(100 / (1 + weeklyCoefficientOfVariation), 0, 100);
-    const inactivityPenaltyScore = clamp(100 - (longestGapHours / 24) * 3, 0, 100);
+    const weeklyRhythmScore = regularityScore(weeklyCoefficientOfVariation);
+    const inactivityPenaltyScore = clamp(100 - (longestGapHours / 24) * INACTIVITY_PENALTY_PER_GAP_DAY, 0, 100);
 
     const consistencyScore =
       commits.length === 0
@@ -278,28 +316,35 @@ export class InsightsService {
       activeRangeDailyValues.length === 0 ? 0 : (daysWithCommits / activeRangeDailyValues.length) * 100;
     const productivityScore = Math.max(0, Math.min(100, Math.round(frequencyScore * 0.7 + distributionScore * 0.3)));
 
-    const mergedPullRequestCount = pullRequests.filter(
-      (pullRequest) => pullRequest.state === 'MERGED' || parseDate(pullRequest.mergedAt)
-    ).length;
-    const closedPullRequestCount = pullRequests.filter(
-      (pullRequest) => pullRequest.state === 'CLOSED' || parseDate(pullRequest.closedAt)
-    ).length;
-    const openPullRequestCount = pullRequests.length - mergedPullRequestCount - closedPullRequestCount;
-    const closedIssueCount = issues.filter((issue) => issue.state === 'CLOSED' || parseDate(issue.closedAt)).length;
+    const pullRequestStateCounts = pullRequests.reduce(
+      (accumulator, pullRequest) => {
+        const classification = classifyPullRequestState(pullRequest);
+        return {
+          merged: accumulator.merged + (classification.isMerged ? 1 : 0),
+          closedUnmerged: accumulator.closedUnmerged + (!classification.isMerged && classification.isClosed ? 1 : 0),
+          open: accumulator.open + (classification.isOpen ? 1 : 0)
+        };
+      },
+      { merged: 0, closedUnmerged: 0, open: 0 }
+    );
+    const mergedPullRequestCount = pullRequestStateCounts.merged;
+    const closedUnmergedPullRequestCount = pullRequestStateCounts.closedUnmerged;
+    const openPullRequestCount = pullRequestStateCounts.open;
+    const closedIssueCount = issues.filter((issue) => issue.state === 'CLOSED' || parseDate(issue.closedAt) !== null).length;
 
     const repositoryCountScore = saturatingScore(repositories.length, 5);
     const ecosystemSignalStrength = repositories.reduce((sum, repository) => {
-      const stars = Number.isFinite(repository.stars) ? Math.max(0, repository.stars ?? 0) : 0;
-      const forks = Number.isFinite(repository.forks) ? Math.max(0, repository.forks ?? 0) : 0;
-      return sum + stars * 0.6 + forks * 0.4;
+      const stars = safeNonNegative(repository.stars);
+      const forks = safeNonNegative(repository.forks);
+      return sum + stars * REPOSITORY_STAR_SIGNAL_WEIGHT + forks * REPOSITORY_FORK_SIGNAL_WEIGHT;
     }, 0);
     const ecosystemScore = saturatingScore(ecosystemSignalStrength, 250);
     const freshnessValues = repositories
       .map((repository) => parseDate(repository.updatedAt))
       .filter((value): value is Date => value !== null)
       .map((updatedAt) => {
-        const ageDays = Math.max(0, (anchorDate.getTime() - updatedAt.getTime()) / (24 * 60 * 60 * 1000));
-        return clamp(100 * Math.exp(-ageDays / 45), 0, 100);
+        const ageDays = Math.max(0, (latestActivityDate.getTime() - updatedAt.getTime()) / (24 * 60 * 60 * 1000));
+        return clamp(100 * Math.exp(-ageDays / FRESHNESS_DECAY_DAYS), 0, 100);
       });
     const freshnessScore =
       freshnessValues.length === 0
@@ -309,8 +354,12 @@ export class InsightsService {
       repositoryCountScore * 0.25 + ecosystemScore * 0.4 + freshnessScore * 0.35
     );
 
-    const weightedCodeContribution = commits.length + mergedPullRequestCount * 6 + closedPullRequestCount * 2;
-    const weightedNonCodeActivity = issues.length * 1.5 + Math.max(0, openPullRequestCount) * 2;
+    const weightedCodeContribution =
+      commits.length +
+      mergedPullRequestCount * MERGED_PR_IMPACT_WEIGHT +
+      closedUnmergedPullRequestCount * CLOSED_UNMERGED_PR_IMPACT_WEIGHT;
+    const weightedNonCodeActivity =
+      issues.length * ISSUE_COLLAB_LOAD_WEIGHT + openPullRequestCount * OPEN_PR_COLLAB_LOAD_WEIGHT;
     const contributionRatio =
       weightedCodeContribution + weightedNonCodeActivity === 0
         ? 0
@@ -319,9 +368,13 @@ export class InsightsService {
     const impactScore = Math.round(repositoryActivityScore * 0.55 + contributionRatioScore * 0.45);
 
     const prVolumeScore = saturatingScore(pullRequests.length, 12);
-    const resolvedPullRequests = mergedPullRequestCount + closedPullRequestCount;
+    const resolvedPullRequests = mergedPullRequestCount + closedUnmergedPullRequestCount;
     const prMergeEfficiencyScore =
-      resolvedPullRequests === 0 ? 0 : (mergedPullRequestCount / resolvedPullRequests) * 100;
+      resolvedPullRequests === 0
+        ? 0
+        : ((mergedPullRequestCount + closedUnmergedPullRequestCount * CLOSED_UNMERGED_PR_OUTCOME_CREDIT) /
+            resolvedPullRequests) *
+          100;
     const issueVolumeScore = saturatingScore(issues.length, 15);
     const issueResolutionScore = issues.length === 0 ? 0 : (closedIssueCount / issues.length) * 100;
 
@@ -362,7 +415,7 @@ export class InsightsService {
         ? 0
         : 100 * (1 - Math.abs(pullRequests.length - issues.length) / (pullRequests.length + issues.length));
     const teamworkSignalScore =
-      repoBreadthScore * 0.4 + responsivenessScore * 0.35 + interactionBalanceScore * 0.25;
+      repoBreadthScore * 0.45 + responsivenessScore * 0.4 + interactionBalanceScore * 0.15;
 
     const prCollaborationScore = prVolumeScore * 0.55 + prMergeEfficiencyScore * 0.45;
     const issueCollaborationScore = issueVolumeScore * 0.45 + issueResolutionScore * 0.55;
