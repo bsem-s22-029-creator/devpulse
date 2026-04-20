@@ -25,11 +25,15 @@ insightsRouter.post('/aggregate', (req, res) => {
   const repositories = Array.isArray(body?.repositories) ? body.repositories : [];
   const pullRequests = Array.isArray(body?.pullRequests) ? body.pullRequests : [];
 
-  const analytics = insightsService.buildAnalytics({
-    commits,
-    repositories,
-    pullRequests
-  });
+  try {
+    const analytics = insightsService.buildAnalytics({
+      commits,
+      repositories,
+      pullRequests
+    });
 
-  return res.status(200).json(analytics);
+    return res.status(200).json(analytics);
+  } catch {
+    return res.status(500).json({ error: 'Failed to aggregate GitHub analytics' });
+  }
 });
